@@ -146,18 +146,52 @@ function getExactGroundHeight(x, z) {
   return Math.max(getTerrainHeight(x, z), -40);
 }
 
-// ─── Water Plane ─────────────────────────────────────────────
-const waterGeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 3, TERRAIN_SIZE * 3);
+// ─── Water Plane with Surfable Waves ─────────────────────────
+const WATER_SEGS = 200;
+const waterGeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 3, TERRAIN_SIZE * 3, WATER_SEGS, WATER_SEGS);
+// Store original vertex positions for wave animation
+const waterBasePositions = new Float32Array(waterGeo.attributes.position.array);
 // Deep Nordic lake
-const waterMat = new THREE.MeshLambertMaterial({
-  color: 0x1a4a6e,
+const waterMat = new THREE.MeshPhongMaterial({
+  color: 0x1a5a7e,
+  specular: 0x88bbdd,
+  shininess: 60,
   transparent: true,
   opacity: 0.75,
+  flatShading: true,
 });
 const water = new THREE.Mesh(waterGeo, waterMat);
 water.rotation.x = -Math.PI / 2;
 water.position.y = -40;
 scene.add(water);
+
+// Wave parameters
+const waves = [
+  { dirX: 1.0, dirY: 0.3,  amp: 3.5, freq: 0.008, speed: 1.2,  phase: 0 },     // primary swell
+  { dirX: 0.7, dirY: 0.7,  amp: 2.0, freq: 0.012, speed: 1.8,  phase: 2.0 },   // cross-wave
+  { dirX: 0.2, dirY: 1.0,  amp: 1.5, freq: 0.02,  speed: 2.5,  phase: 4.5 },   // ripple
+  { dirX: -0.4, dirY: 0.9, amp: 1.0, freq: 0.035, speed: 3.0,  phase: 1.3 },   // chop
+];
+
+function getWaveHeight(x, z, time) {
+  let h = 0;
+  for (const w of waves) {
+    const dot = x * w.dirX + z * w.dirY;
+    h += w.amp * Math.sin(dot * w.freq + time * w.speed + w.phase);
+  }
+  return h;
+}
+
+function animateWaves(time) {
+  const positions = waterGeo.attributes.position.array;
+  for (let i = 0; i < positions.length; i += 3) {
+    const bx = waterBasePositions[i];
+    const by = waterBasePositions[i + 1];
+    positions[i + 2] = getWaveHeight(bx, by, time);
+  }
+  waterGeo.attributes.position.needsUpdate = true;
+  waterGeo.computeVertexNormals();
+}
 
 // ─── Sun Orb (visible golden sun in the sky) ────────────────
 const sunGeo = new THREE.SphereGeometry(120, 16, 12);
@@ -1183,6 +1217,7 @@ function createHayBale(px, pz) {
 }
 
 // ─── Boats ───────────────────────────────────────────────────
+const boats = [];
 function createBoat(px, pz) {
   const group = new THREE.Group();
   const hullMat = new THREE.MeshPhongMaterial({ color: 0x8B2500, flatShading: true });
@@ -1209,6 +1244,7 @@ function createBoat(px, pz) {
   group.position.set(px, -39.5, pz);
   group.rotation.y = Math.random() * Math.PI * 2;
   scene.add(group);
+  boats.push({ group, baseX: px, baseZ: pz });
   return group;
 }
 
@@ -4248,8 +4284,9 @@ function updateWalking(t) {
 
   // ── Gravity / buoyancy / parachute ──
   if (player.swimming) {
-    // Buoyancy: bob at water surface
-    const waterSurface = WATER_LEVEL - 2; // submerged to chest
+    // Buoyancy: bob at water surface, following waves
+    const wh = getWaveHeight(player.position.x, player.position.z, Date.now() * 0.001);
+    const waterSurface = WATER_LEVEL + wh - 2; // submerged to chest, riding waves
     const diff = waterSurface - player.position.y;
     player.velocity.y += diff * 8 * t; // spring toward surface
     player.velocity.y *= Math.pow(0.05, t); // heavy water damping
@@ -4338,7 +4375,8 @@ function updateWalking(t) {
       // Walked into water → start swimming
       player.swimming = true;
       player.onGround = false;
-      player.position.y = WATER_LEVEL - 2;
+      const entryWh = getWaveHeight(player.position.x, player.position.z, Date.now() * 0.001);
+      player.position.y = WATER_LEVEL + entryWh - 2;
       player.velocity.y = 0;
       // Close parachute if still open
       if (player.parachuteOpen) {
@@ -4355,11 +4393,12 @@ function updateWalking(t) {
     // Airborne
     player.position.y += player.velocity.y * t;
 
-    if (overWaterNow && player.position.y <= WATER_LEVEL) {
+    const splashWh = getWaveHeight(player.position.x, player.position.z, Date.now() * 0.001);
+    if (overWaterNow && player.position.y <= WATER_LEVEL + splashWh) {
       // Splash into water → start swimming
       player.swimming = true;
       player.onGround = false;
-      player.position.y = WATER_LEVEL - 2;
+      player.position.y = WATER_LEVEL + splashWh - 2;
       player.velocity.y = 0;
       if (player.parachuteOpen) {
         player.parachuteOpen = false;
@@ -4640,10 +4679,10 @@ function updateFlight(dt) {
 
   flight.position.addScaledVector(flight.velocity, t);
 
-  // Terrain collision
+  // Terrain collision (waves affect water surface)
   const terrH = getTerrainHeight(flight.position.x, flight.position.z);
-  const waterH = -40;
-  const groundH = Math.max(terrH, waterH) + 5;
+  const waveH = WATER_LEVEL + getWaveHeight(flight.position.x, flight.position.z, Date.now() * 0.001);
+  const groundH = Math.max(terrH, waveH) + 5;
 
   if (flight.position.y < groundH) {
     crash();
@@ -4812,8 +4851,18 @@ function animate() {
 
   updateFlight(dt);
 
-  // Animate water - Nordic lake shimmer
-  water.material.opacity = 0.65 + Math.sin(Date.now() * 0.001) * 0.08;
+  // Animate water waves
+  const waveTime = Date.now() * 0.001;
+  animateWaves(waveTime);
+  water.material.opacity = 0.65 + Math.sin(waveTime) * 0.08;
+
+  // Bob boats on waves
+  for (const b of boats) {
+    const wh = getWaveHeight(b.baseX, b.baseZ, waveTime);
+    b.group.position.y = WATER_LEVEL + wh + 0.5;
+    b.group.rotation.x = Math.sin(waveTime * 1.2 + b.baseX * 0.01) * 0.08;
+    b.group.rotation.z = Math.cos(waveTime * 0.9 + b.baseZ * 0.01) * 0.06;
+  }
 
   // Animate aurora borealis - gentle swaying and pulsing
   const now = Date.now() * 0.001;
