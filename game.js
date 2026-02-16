@@ -60,6 +60,27 @@ function generateTerrain() {
     vertices[i + 2] = h;
   }
 
+  // Flatten terrain around airport area (world 300, -350 → vertex 300, 350)
+  const apX = 300, apY = 350, apInner = 120, apOuter = 250;
+  // Sample the center height to use as the flat level
+  let apCenterH = 0;
+  apCenterH += Math.sin(apX * 0.002) * Math.cos(apY * 0.002) * 120;
+  apCenterH += Math.sin(apX * 0.005 + 1) * Math.cos(apY * 0.004 + 2) * 60;
+  apCenterH += Math.sin(apX * 0.01 + 3) * Math.cos(apY * 0.012 + 1) * 30;
+  apCenterH += Math.sin(apX * 0.025) * Math.cos(apY * 0.02) * 15;
+  for (let i = 0; i < vertices.length; i += 3) {
+    const dx = vertices[i] - apX;
+    const dy = vertices[i + 1] - apY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < apInner) {
+      vertices[i + 2] = apCenterH;
+    } else if (dist < apOuter) {
+      const blend = (dist - apInner) / (apOuter - apInner);
+      const smooth = blend * blend * (3 - 2 * blend); // smoothstep
+      vertices[i + 2] = apCenterH * (1 - smooth) + vertices[i + 2] * smooth;
+    }
+  }
+
   geometry.computeVertexNormals();
 
   // Color terrain by height
@@ -1287,13 +1308,15 @@ function createStoneWall(startX, startZ, endX, endZ) {
     const fy = getTerrainHeight(fx, fz);
     if (fy < -5 || fy > 70) continue;
 
-    // Skip if too close to a village center
+    // Skip if too close to a village center or airport
     let nearVillage = false;
     for (const v of villages) {
       const vdx = fx - v.cx, vdz = fz - v.cz;
       if (Math.sqrt(vdx * vdx + vdz * vdz) < 200) { nearVillage = true; break; }
     }
     if (nearVillage) continue;
+    const adx = fx - 300, adz = fz - (-350);
+    if (Math.sqrt(adx * adx + adz * adz) < 150) continue;
 
     const rot = Math.random() * Math.PI * 2;
     const scale = 0.7 + Math.random() * 0.5;
@@ -1351,7 +1374,7 @@ function createStoneWall(startX, startZ, endX, endZ) {
 })();
 
 // ─── Airport ────────────────────────────────────────────────
-const AIRPORT_POS = { x: 700, z: 300 }; // near first village
+const AIRPORT_POS = { x: 300, z: -350 }; // visible from player start, clear of village
 const AIRPORT_HEADING = -0.3; // runway heading (radians)
 
 (function createAirport() {
@@ -1554,11 +1577,11 @@ const AIRPORT_HEADING = -0.3; // runway heading (radians)
   }
 })();
 
-// Plane parking position at the apron
+// Plane parking position on the runway center
 const PLANE_PARK = {
-  x: AIRPORT_POS.x + Math.cos(AIRPORT_HEADING) * 40,
-  y: getTerrainHeight(AIRPORT_POS.x + Math.cos(AIRPORT_HEADING) * 40, AIRPORT_POS.z - Math.sin(AIRPORT_HEADING) * 40) + 3,
-  z: AIRPORT_POS.z - Math.sin(AIRPORT_HEADING) * 40,
+  x: AIRPORT_POS.x,
+  y: getTerrainHeight(AIRPORT_POS.x, AIRPORT_POS.z) + 6,
+  z: AIRPORT_POS.z,
 };
 
 // ─── Villagers ───────────────────────────────────────────────
@@ -3914,7 +3937,7 @@ function boardPlane() {
   // Position plane for takeoff — place on runway facing along it
   const rx = AIRPORT_POS.x - Math.sin(AIRPORT_HEADING) * 80; // back of runway
   const rz = AIRPORT_POS.z - Math.cos(AIRPORT_HEADING) * 80;
-  const ry = getTerrainHeight(AIRPORT_POS.x, AIRPORT_POS.z) + 3;
+  const ry = getTerrainHeight(AIRPORT_POS.x, AIRPORT_POS.z) + 6;
   flight.position.set(rx, ry, rz);
   flight.velocity.set(0, 0, 0);
   flight.speed = 0.5;
@@ -3935,7 +3958,7 @@ function boardPlane() {
   autopilot.active = false;
   autopilot.crashed = false;
 
-  mouse.yaw = AIRPORT_HEADING + Math.PI;
+  mouse.yaw = AIRPORT_HEADING;
   mouse.pitch = 0.3;
 }
 
@@ -3969,6 +3992,29 @@ function getTerrainHeight(x, z) {
   h += Math.sin(x * 0.005 + 1) * Math.cos(-z * 0.004 + 2) * 60;
   h += Math.sin(x * 0.01 + 3) * Math.cos(-z * 0.012 + 1) * 30;
   h += Math.sin(x * 0.025) * Math.cos(-z * 0.02) * 15;
+
+  // Apply airport flattening (must match generateTerrain)
+  const apX = 300, apZ = -350, apInner = 120, apOuter = 250;
+  const dx = x - apX, dz = z - apZ;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist < apInner) {
+    let ch = 0;
+    ch += Math.sin(apX * 0.002) * Math.cos(-apZ * 0.002) * 120;
+    ch += Math.sin(apX * 0.005 + 1) * Math.cos(-apZ * 0.004 + 2) * 60;
+    ch += Math.sin(apX * 0.01 + 3) * Math.cos(-apZ * 0.012 + 1) * 30;
+    ch += Math.sin(apX * 0.025) * Math.cos(-apZ * 0.02) * 15;
+    h = ch;
+  } else if (dist < apOuter) {
+    let ch = 0;
+    ch += Math.sin(apX * 0.002) * Math.cos(-apZ * 0.002) * 120;
+    ch += Math.sin(apX * 0.005 + 1) * Math.cos(-apZ * 0.004 + 2) * 60;
+    ch += Math.sin(apX * 0.01 + 3) * Math.cos(-apZ * 0.012 + 1) * 30;
+    ch += Math.sin(apX * 0.025) * Math.cos(-apZ * 0.02) * 15;
+    const blend = (dist - apInner) / (apOuter - apInner);
+    const smooth = blend * blend * (3 - 2 * blend);
+    h = ch * (1 - smooth) + h * smooth;
+  }
+
   return h;
 }
 
@@ -3984,13 +4030,13 @@ function resetFlight() {
   flight.quaternion.setFromEuler(new THREE.Euler(0, AIRPORT_HEADING, 0, "YXZ"));
   flight.boost = false;
 
-  // Start pilot on ground in the first village
+  // Start pilot on ground facing airport, maypole and village visible
   controlMode = "walking";
-  const startX = 550, startZ = -450; // first village, offset from maypole
+  const startX = 220, startZ = -245;
   const startY = getExactGroundHeight(startX, startZ);
   player.position.set(startX, startY, startZ);
   player.velocity.set(0, 0, 0);
-  player.yaw = 0;
+  player.yaw = 2.6; // face toward airport
   player.speed = 0;
   player.onGround = true;
   player.walkPhase = 0;
@@ -4804,7 +4850,7 @@ document.getElementById("start-btn").addEventListener("click", () => {
   initAudio();
   dom.startScreen.classList.add("hidden");
   resetFlight();
-  mouse.yaw = 0; mouse.pitch = 0.3; // look forward in village
+  mouse.yaw = -0.54; mouse.pitch = 0.3; // face toward airport
   state = "playing";
   clock.start();
   renderer.domElement.requestPointerLock();
@@ -4814,7 +4860,7 @@ document.getElementById("restart-btn").addEventListener("click", () => {
   initAudio();
   dom.crashScreen.classList.add("hidden");
   resetFlight();
-  mouse.yaw = 0; mouse.pitch = 0.3;
+  mouse.yaw = -0.54; mouse.pitch = 0.3;
   state = "playing";
   clock.start();
   renderer.domElement.requestPointerLock();
