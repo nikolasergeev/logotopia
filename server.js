@@ -4,8 +4,46 @@ const { execSync } = require('child_process');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+
+const AI_SYSTEM_PROMPT = `You are a game world modifier for a Three.js flight simulator called Logotopia. You receive natural language requests and output ONLY executable JavaScript code. No markdown fences, no explanation, no comments — just code.
+
+Available globals:
+- scene, camera, renderer (Three.js r128)
+- THREE (the Three.js library, r128)
+- terrain (the terrain mesh), water (the water plane)
+- airplane (player's airplane Group), walkingPilot (pilot object)
+- sunLight (DirectionalLight), ambientLight (AmbientLight), hemiLight (HemisphereLight)
+- sunOrb (the sun mesh), auroraGroup (aurora borealis Group), flowerGroup (Group of flowers)
+- flight (object: position, quaternion, speed, throttle, boost, altitude)
+- player (object: position, yaw, speed, onGround, swimming)
+- controlMode ("flying" or "walking")
+- state ("start", "playing", or "crashed")
+- zombies (array), villagers (array), targets (array), collectibleFlowers (array), mooseList (array), bullets (array)
+
+Creation functions:
+- createAirplane() — returns airplane Group, add to scene
+- createZombie() — returns zombie object, already added to scene & zombies array
+- createVillager(x, z, outfitIdx) — creates villager at position
+- createTarget(x, y, z) — creates ring target
+- createMoose() — returns moose, already added to scene & mooseList
+- createCloud(x, y, z) — creates cloud at position
+- createHouse(x, z, scale, rotation) — creates house
+- createMaypole(x, z) — creates maypole
+- createBoat(x, z) — creates boat
+- createBarn(x, z, rotation) — creates barn
+- createHayBale(x, z) — creates hay bale
+
+Spawn functions (batch spawn with default placement):
+- spawnZombies(), spawnTargets(), spawnCollectibleFlowers(), spawnMoose(), spawnVillagers()
+
+Utility:
+- getTerrainHeight(x, z) — returns terrain Y at world (x, z)
+- TERRAIN_SIZE = 8000, TERRAIN_HEIGHT = 300
+
+Output ONLY executable JS. No markdown, no backticks, no explanation.`;
 
 const app = express();
 
@@ -68,8 +106,14 @@ wss.on('connection', (ws) => {
           p.state = msg.data;
         }
         broadcast({ type: 'state', id, data: msg.data }, id);
+      } else if (msg.type === 'ai' && msg.prompt && msg.apiKey) {
+        const prompt = msg.prompt.slice(0, 500);
+        console.log('AI request from', id, ':', prompt);
+        handleAI(id, prompt, msg.apiKey);
+      } else if (msg.type === 'ai') {
+        ws.send(JSON.stringify({ type: 'code_error', error: 'Missing API key or prompt', prompt: msg.prompt || '' }));
       }
-    } catch (e) {}
+    } catch (e) { console.error('WS message error:', e); }
   });
 
   ws.on('close', () => {
@@ -91,6 +135,40 @@ function broadcast(msg, excludeId) {
   for (const [id, p] of players) {
     if (id !== excludeId && p.ws.readyState === 1) {
       p.ws.send(raw);
+    }
+  }
+}
+
+function broadcastAll(msg) {
+  const raw = JSON.stringify(msg);
+  for (const [, p] of players) {
+    if (p.ws.readyState === 1) p.ws.send(raw);
+  }
+}
+
+async function handleAI(authorId, prompt, apiKey) {
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 1024,
+      system: AI_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    let code = response.content[0].text.trim();
+    // Strip markdown fences if Claude included them anyway
+    if (code.startsWith('```')) {
+      code = code.replace(/^```(?:javascript|js)?\n?/, '').replace(/\n?```$/, '');
+    }
+
+    broadcastAll({ type: 'code', code, prompt, author: authorId });
+  } catch (e) {
+    console.error('AI error:', e.message);
+    // Send error only to the requesting player
+    const p = players.get(authorId);
+    if (p && p.ws.readyState === 1) {
+      p.ws.send(JSON.stringify({ type: 'code_error', error: e.message, prompt }));
     }
   }
 }

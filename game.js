@@ -4897,6 +4897,12 @@ function animate() {
 
 // ─── UI ──────────────────────────────────────────────────────
 document.getElementById("start-btn").addEventListener("click", () => {
+  // Grab API key from start screen input (held in memory only)
+  const keyInput = document.getElementById("api-key-input");
+  if (keyInput && keyInput.value.trim()) {
+    gameConsole.setApiKey(keyInput.value.trim());
+    keyInput.value = ''; // clear the DOM input immediately
+  }
   initAudio();
   dom.startScreen.classList.add("hidden");
   resetFlight();
@@ -4983,6 +4989,12 @@ const networkManager = (function() {
           break;
         case 'full':
           console.log('Server full');
+          break;
+        case 'code':
+          if (typeof gameConsole !== 'undefined') gameConsole.handleCode(msg);
+          break;
+        case 'code_error':
+          if (typeof gameConsole !== 'undefined') gameConsole.handleCodeError(msg);
           break;
       }
       updateHUD();
@@ -5229,7 +5241,123 @@ const networkManager = (function() {
     connect();
   }
 
-  return { update, remotePlayers };
+  return { update, remotePlayers, get _ws() { return ws; } };
+})();
+
+// ─── AI Console ───────────────────────────────────────────────
+const gameConsole = (function() {
+  // Build DOM
+  const root = document.createElement('div');
+  root.id = 'game-console';
+  root.className = 'hidden';
+  root.innerHTML = '<div id="console-log"></div>' +
+    '<div id="console-input-row"><label>&gt;</label>' +
+    '<input id="console-input" type="text" placeholder="Describe a change to the game world..." autocomplete="off" />' +
+    '</div>';
+  document.body.appendChild(root);
+
+  const logEl = document.getElementById('console-log');
+  const inputEl = document.getElementById('console-input');
+  let visible = false;
+  let thinkingEl = null;
+  let apiKey = ''; // held in memory only, never persisted
+
+  function toggle() {
+    visible = !visible;
+    root.classList.toggle('hidden', !visible);
+    if (visible) {
+      inputEl.focus();
+    } else {
+      inputEl.blur();
+    }
+  }
+
+  function log(text, cls) {
+    const div = document.createElement('div');
+    div.className = cls || '';
+    div.textContent = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    return div;
+  }
+
+  function showThinking() {
+    if (thinkingEl) thinkingEl.remove();
+    thinkingEl = log('Thinking...', 'thinking-line');
+  }
+
+  function clearThinking() {
+    if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+  }
+
+  function send(prompt) {
+    if (!prompt.trim()) return;
+    // Allow setting key directly in console with /key <value>
+    if (prompt.trim().startsWith('/key ')) {
+      apiKey = prompt.trim().slice(5).trim();
+      log('API key set.', 'response-line');
+      return;
+    }
+    if (!apiKey) {
+      log('No API key. Enter one on the start screen, or type: /key sk-ant-...', 'error-line');
+      return;
+    }
+    log('> ' + prompt, 'prompt-line');
+    showThinking();
+    // Send via existing WebSocket in networkManager
+    if (networkManager._ws && networkManager._ws.readyState === 1) {
+      networkManager._ws.send(JSON.stringify({ type: 'ai', prompt, apiKey }));
+    } else {
+      clearThinking();
+      log('Not connected to server.', 'error-line');
+    }
+  }
+
+  function handleCode(msg) {
+    clearThinking();
+    if (msg.prompt) log('Prompt: ' + msg.prompt, 'prompt-line');
+    try {
+      // eval in global scope via indirect eval
+      (0, eval)(msg.code);
+      log('Applied!', 'response-line');
+    } catch (e) {
+      log('Error: ' + e.message, 'error-line');
+    }
+  }
+
+  function handleCodeError(msg) {
+    clearThinking();
+    log('AI Error: ' + msg.error, 'error-line');
+  }
+
+  // Key handling
+  inputEl.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // prevent game from receiving key events
+    if (e.key === '`') {
+      e.preventDefault();
+      toggle();
+    } else if (e.key === 'Enter') {
+      const text = inputEl.value;
+      inputEl.value = '';
+      send(text);
+    } else if (e.key === 'Escape') {
+      toggle();
+    }
+  });
+  inputEl.addEventListener('keyup', (e) => e.stopPropagation());
+  inputEl.addEventListener('keypress', (e) => e.stopPropagation());
+
+  // Toggle on backtick (but not when typing in input)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '`' && document.activeElement !== inputEl) {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  function setApiKey(key) { apiKey = key || ''; }
+
+  return { handleCode, handleCodeError, toggle, setApiKey };
 })();
 
 // ─── Init ────────────────────────────────────────────────────

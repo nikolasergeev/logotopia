@@ -196,6 +196,68 @@
     .overlay button:active { transform: scale(0.96); }
 
     #final-score { color: #ffffff; font-weight: 800; }
+
+    /* AI Console */
+    #game-console {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(600px, 90vw);
+      max-height: 260px;
+      background: rgba(0, 0, 0, 0.82);
+      border-radius: 10px 10px 0 0;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-bottom: none;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      pointer-events: auto;
+      font-family: 'Segoe UI', system-ui, monospace;
+    }
+    #game-console.hidden {
+      transform: translateX(-50%) translateY(100%);
+      opacity: 0;
+      pointer-events: none;
+    }
+    #console-log {
+      flex: 1;
+      min-height: 60px;
+      overflow-y: auto;
+      padding: 10px 14px 4px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: rgba(255,255,255,0.85);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.2) transparent;
+    }
+    #console-log .prompt-line { color: #6cf; }
+    #console-log .response-line { color: #8f8; }
+    #console-log .error-line { color: #f66; }
+    #console-log .thinking-line { color: rgba(255,255,255,0.4); font-style: italic; }
+    #console-input-row {
+      display: flex;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      padding: 6px 10px;
+      gap: 8px;
+      align-items: center;
+    }
+    #console-input-row label {
+      color: #6cf;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    #console-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #console-input::placeholder { color: rgba(255,255,255,0.3); }
   </style>
 </head>
 <body>
@@ -242,7 +304,14 @@
       <span class="key">Click</span><span>Fire machinegun</span>
       <span class="key">F</span><span>Eject &amp; walk on ground</span>
       <span class="key">P</span><span>Take screenshot</span>
+      <span class="key">`</span><span>AI Console</span>
     </div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+      <label for="api-key-input" style="font-size:12px;color:rgba(255,255,255,0.5);white-space:nowrap;">Anthropic API Key</label>
+      <input id="api-key-input" type="password" placeholder="sk-ant-..." autocomplete="off"
+        style="width:260px;padding:6px 10px;font-size:13px;font-family:inherit;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:#fff;outline:none;" />
+    </div>
+    <p style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;">Optional — enables AI console (` key). Key is held in memory only, never stored.</p>
     <button id="start-btn">PLAY</button>
   </div>
 
