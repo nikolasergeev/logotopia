@@ -4431,44 +4431,6 @@ function updateWalking(t) {
     walkingPilot.leftKneePivot.rotation.x = Math.max(0, s) * 0.8;
     walkingPilot.rightKneePivot.rotation.x = Math.max(0, -s) * 0.8;
 
-  } else if (player.idleTimer > 5) {
-    // 5. Fika — squat down, coffee cup
-    player.fikaActive = true;
-    walkingPilot.coffeeCup.visible = true;
-    // Squat
-    walkingPilot.leftLegPivot.rotation.x = -0.8;
-    walkingPilot.rightLegPivot.rotation.x = -0.8;
-    walkingPilot.leftKneePivot.rotation.x = 1.4;
-    walkingPilot.rightKneePivot.rotation.x = 1.4;
-    // Right arm brings cup to face
-    walkingPilot.rightArmPivot.rotation.x = -1.8;
-    walkingPilot.rightArmPivot.rotation.z = 0.2;
-    walkingPilot.rightElbowPivot.rotation.x = -1.5;
-    // Left arm rests on knee
-    walkingPilot.leftArmPivot.rotation.x = -0.8;
-    walkingPilot.leftArmPivot.rotation.z = 0;
-    walkingPilot.leftElbowPivot.rotation.x = -0.6;
-
-  } else if (player.idleTimer > 2) {
-    // 6. Victory dance — arms raised, spinning, celebratory bounce
-    player.walkPhase += t * 6;
-    const s = Math.sin(player.walkPhase);
-    // Spin in place
-    player.yaw += t * 4;
-    walkingPilot.group.rotation.y = player.yaw;
-    // Arms raised high
-    walkingPilot.leftArmPivot.rotation.x = -3.0;
-    walkingPilot.rightArmPivot.rotation.x = -3.0;
-    walkingPilot.leftArmPivot.rotation.z = -0.5 + s * 0.3;
-    walkingPilot.rightArmPivot.rotation.z = 0.5 - s * 0.3;
-    walkingPilot.leftElbowPivot.rotation.x = 0;
-    walkingPilot.rightElbowPivot.rotation.x = 0;
-    // Celebratory bounce
-    walkingPilot.leftLegPivot.rotation.x = s * 0.3;
-    walkingPilot.rightLegPivot.rotation.x = -s * 0.3;
-    walkingPilot.leftKneePivot.rotation.x = Math.abs(s) * 0.4;
-    walkingPilot.rightKneePivot.rotation.x = Math.abs(s) * 0.4;
-
   } else if (player.speed > 0 && player.onGround) {
     // 7. Walk animation
     player.walkPhase += t * 8;
