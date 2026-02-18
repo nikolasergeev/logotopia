@@ -247,8 +247,8 @@ const waterMat = new THREE.ShaderMaterial({
       float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
       fresnel = mix(0.05, 0.85, fresnel);
 
-      // Depth color: navy trough (-48) -> teal crest (-32)
-      float waveT = clamp((vWorldPos.y + 48.0) / 16.0, 0.0, 1.0);
+      // Depth color: navy trough (-52) -> teal crest (-28)
+      float waveT = clamp((vWorldPos.y + 52.0) / 24.0, 0.0, 1.0);
       vec3 deepColor    = vec3(0.06, 0.22, 0.38);
       vec3 shallowColor = vec3(0.16, 0.50, 0.60);
       vec3 waterColor   = mix(deepColor, shallowColor, waveT);
