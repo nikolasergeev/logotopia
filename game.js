@@ -161,29 +161,61 @@ const waterMat = new THREE.ShaderMaterial({
     varying vec3 vWorldNormal;
     varying float vFoamMask;
 
+    // Gerstner wave: returns (displaceX, displaceY, displaceZ[height])
+    vec3 gerstner(vec2 dir, float amp, float k, float omega, float phase, float steep, vec2 p, float t) {
+      float theta = dot(dir, p) * k + omega * t + phase;
+      float s = sin(theta);
+      float c = cos(theta);
+      return vec3(steep * amp * dir.x * c,
+                  steep * amp * dir.y * c,
+                  amp * s);
+    }
+
     void main() {
-      vec2 p = position.xy;
+      vec2 p0 = position.xy;  // rest position in local XY plane
 
-      // DIAGNOSTIC: huge sine waves — should produce unmissable rollers
-      float k1 = 0.040, k2 = 0.028;
-      float h = 30.0 * sin(p.x * k1 + uTime * 2.0)
-              + 20.0 * sin(p.y * k2 + uTime * 1.5 + 1.0)
-              + 10.0 * sin((p.x + p.y) * 0.020 + uTime * 1.2 + 2.5);
+      // Wave components: (dir, amp, k=freq, omega=speed, phase, steep=Q)
+      vec3 D = vec3(0.0);
+      D += gerstner(normalize(vec2( 1.0,  0.3)), 5.0, 0.008, 1.2, 0.0,  0.60, p0, uTime);
+      D += gerstner(normalize(vec2( 0.7,  0.7)), 3.0, 0.012, 1.8, 2.0,  0.50, p0, uTime);
+      D += gerstner(normalize(vec2( 0.2,  1.0)), 2.0, 0.020, 2.5, 4.5,  0.35, p0, uTime);
+      D += gerstner(normalize(vec2(-0.4,  0.9)), 1.5, 0.035, 3.0, 1.3,  0.20, p0, uTime);
 
-      vFoamMask = clamp(h / 60.0 + 0.5, 0.0, 1.0);
+      vec2 pos = p0 + D.xy;
+      float h  = D.z;
 
-      // Finite-difference normal
-      float eps = 25.0;
-      float hpx = 30.0 * sin((p.x+eps) * k1 + uTime * 2.0)
-                + 20.0 * sin(p.y * k2 + uTime * 1.5 + 1.0)
-                + 10.0 * sin((p.x+eps + p.y) * 0.020 + uTime * 1.2 + 2.5);
-      float hpy = 30.0 * sin(p.x * k1 + uTime * 2.0)
-                + 20.0 * sin((p.y+eps) * k2 + uTime * 1.5 + 1.0)
-                + 10.0 * sin((p.x + p.y+eps) * 0.020 + uTime * 1.2 + 2.5);
-      vec3 localNorm = normalize(vec3((h - hpx)/eps, (h - hpy)/eps, 1.0));
+      // Analytic surface normal (GPU Gems 1 ch.1)
+      float nx = 0.0, ny = 0.0, nz_term = 0.0;
+      {
+        vec2 dir = normalize(vec2( 1.0,  0.3)); float k=0.008, A=5.0, Q=0.60, om=1.2, ph=0.0;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      {
+        vec2 dir = normalize(vec2( 0.7,  0.7)); float k=0.012, A=3.0, Q=0.50, om=1.8, ph=2.0;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      {
+        vec2 dir = normalize(vec2( 0.2,  1.0)); float k=0.020, A=2.0, Q=0.35, om=2.5, ph=4.5;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      {
+        vec2 dir = normalize(vec2(-0.4,  0.9)); float k=0.035, A=1.5, Q=0.20, om=3.0, ph=1.3;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      vec3 localNorm = normalize(vec3(nx, ny, 1.0 - nz_term));
+
+      vFoamMask = clamp(nz_term * 12.0, 0.0, 1.0);
 
       vWorldNormal = normalize(mat3(modelMatrix) * localNorm);
-      vec4 worldPos4 = modelMatrix * vec4(p.x, p.y, h, 1.0);
+      vec4 worldPos4 = modelMatrix * vec4(pos.x, pos.y, h, 1.0);
       vWorldPos = worldPos4.xyz;
       gl_Position = projectionMatrix * viewMatrix * worldPos4;
     }
@@ -211,10 +243,10 @@ const waterMat = new THREE.ShaderMaterial({
       float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
       fresnel = mix(0.05, 0.85, fresnel);
 
-      // Depth color: dark blue trough (-100) -> bright teal crest (+20)
-      float waveT = clamp((vWorldPos.y + 100.0) / 120.0, 0.0, 1.0);
-      vec3 deepColor    = vec3(0.02, 0.08, 0.35);
-      vec3 shallowColor = vec3(0.10, 0.70, 0.65);
+      // Depth color: navy trough (-52) -> teal crest (-28)
+      float waveT = clamp((vWorldPos.y + 52.0) / 24.0, 0.0, 1.0);
+      vec3 deepColor    = vec3(0.06, 0.22, 0.38);
+      vec3 shallowColor = vec3(0.16, 0.50, 0.60);
       vec3 waterColor   = mix(deepColor, shallowColor, waveT);
 
       // Blend water and sky by Fresnel
@@ -4384,7 +4416,7 @@ function updateWalking(t) {
   // ── Gravity / buoyancy / parachute ──
   if (player.swimming) {
     // Buoyancy: bob at water surface, following waves
-    const wh = getWaveHeight(player.position.x, player.position.z, Date.now() * 0.001);
+    const wh = getWaveHeight(player.position.x, player.position.z, waveElapsed);
     const waterSurface = WATER_LEVEL + wh - 2; // submerged to chest, riding waves
     const diff = waterSurface - player.position.y;
     player.velocity.y += diff * 8 * t; // spring toward surface
@@ -4474,7 +4506,7 @@ function updateWalking(t) {
       // Walked into water → start swimming
       player.swimming = true;
       player.onGround = false;
-      const entryWh = getWaveHeight(player.position.x, player.position.z, Date.now() * 0.001);
+      const entryWh = getWaveHeight(player.position.x, player.position.z, waveElapsed);
       player.position.y = WATER_LEVEL + entryWh - 2;
       player.velocity.y = 0;
       // Close parachute if still open
@@ -4492,7 +4524,7 @@ function updateWalking(t) {
     // Airborne
     player.position.y += player.velocity.y * t;
 
-    const splashWh = getWaveHeight(player.position.x, player.position.z, Date.now() * 0.001);
+    const splashWh = getWaveHeight(player.position.x, player.position.z, waveElapsed);
     if (overWaterNow && player.position.y <= WATER_LEVEL + splashWh) {
       // Splash into water → start swimming
       player.swimming = true;
@@ -4780,7 +4812,7 @@ function updateFlight(dt) {
 
   // Terrain collision (waves affect water surface)
   const terrH = getTerrainHeight(flight.position.x, flight.position.z);
-  const waveH = WATER_LEVEL + getWaveHeight(flight.position.x, flight.position.z, Date.now() * 0.001);
+  const waveH = WATER_LEVEL + getWaveHeight(flight.position.x, flight.position.z, waveElapsed);
   const groundH = Math.max(terrH, waveH) + 5;
 
   if (flight.position.y < groundH) {
