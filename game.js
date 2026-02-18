@@ -216,7 +216,7 @@ const waterMat = new THREE.ShaderMaterial({
       vec3 localNorm = normalize(vec3(nx, ny, 1.0 - nz_term));
 
       // vFoamMask: nz_term peaks at steep crests — used for whitecap foam
-      vFoamMask = clamp(nz_term * 1.5, 0.0, 1.0);
+      vFoamMask = clamp(nz_term * 12.0, 0.0, 1.0);
 
       vWorldNormal = normalize(mat3(modelMatrix) * localNorm);
       vec4 worldPos4 = modelMatrix * vec4(pos.x, pos.y, h, 1.0);
@@ -287,7 +287,8 @@ water.rotation.x = -Math.PI / 2;
 water.position.y = -40;
 scene.add(water);
 
-// Wave parameters — must match vertex shader Gerstner constants
+// Wave parameters — amplitudes/freq/speed/phase must match vertex shader Gerstner constants
+// Note: getWaveHeight() uses vertical component only (amp*sin) as a physics approximation
 const waves = [
   { dirX: 1.0, dirY: 0.3,  amp: 5.0, freq: 0.008, speed: 1.2,  phase: 0.0 },   // primary swell
   { dirX: 0.7, dirY: 0.7,  amp: 3.0, freq: 0.012, speed: 1.8,  phase: 2.0 },   // cross-wave
