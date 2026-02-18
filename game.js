@@ -159,27 +159,64 @@ const waterMat = new THREE.ShaderMaterial({
     uniform float uTime;
     varying vec3 vWorldPos;
     varying vec3 vWorldNormal;
+    varying float vFoamMask;
 
-    float waveH(vec2 pos) {
-      float h = 0.0;
-      h += 3.5 * sin(dot(pos, vec2( 1.0,  0.3)) * 0.008 + uTime * 1.2 + 0.0);
-      h += 2.0 * sin(dot(pos, vec2( 0.7,  0.7)) * 0.012 + uTime * 1.8 + 2.0);
-      h += 1.5 * sin(dot(pos, vec2( 0.2,  1.0)) * 0.020 + uTime * 2.5 + 4.5);
-      h += 1.0 * sin(dot(pos, vec2(-0.4,  0.9)) * 0.035 + uTime * 3.0 + 1.3);
-      return h;
+    // Gerstner wave: returns (displaceX, displaceY, displaceZ[height])
+    vec3 gerstner(vec2 dir, float amp, float k, float omega, float phase, float steep, vec2 p, float t) {
+      float theta = dot(dir, p) * k + omega * t + phase;
+      float s = sin(theta);
+      float c = cos(theta);
+      return vec3(steep * amp * dir.x * c,
+                  steep * amp * dir.y * c,
+                  amp * s);
     }
 
     void main() {
-      vec2 pos = position.xy;
-      float h = waveH(pos);
+      vec2 p0 = position.xy;  // rest position in local XY plane
 
-      // Finite-difference surface normal
-      float eps = 1.0;
-      vec3 localNorm = normalize(vec3(
-        waveH(pos + vec2(-eps, 0.0)) - waveH(pos + vec2(eps, 0.0)),
-        waveH(pos + vec2(0.0, -eps)) - waveH(pos + vec2(0.0, eps)),
-        2.0 * eps
-      ));
+      // Wave components: (dir, amp, k=freq, omega=speed, phase, steep=Q)
+      vec3 D = vec3(0.0);
+      D += gerstner(normalize(vec2( 1.0,  0.3)), 5.0, 0.008, 1.2, 0.0,  0.60, p0, uTime);
+      D += gerstner(normalize(vec2( 0.7,  0.7)), 3.0, 0.012, 1.8, 2.0,  0.50, p0, uTime);
+      D += gerstner(normalize(vec2( 0.2,  1.0)), 2.0, 0.020, 2.5, 4.5,  0.35, p0, uTime);
+      D += gerstner(normalize(vec2(-0.4,  0.9)), 1.5, 0.035, 3.0, 1.3,  0.20, p0, uTime);
+
+      vec2 pos = p0 + D.xy;   // horizontally displaced position
+      float h  = D.z;         // vertical displacement
+
+      // Analytic surface normal for summed Gerstner (GPU Gems 1 ch.1 formula)
+      // N.x = -sum(k * A * d.x * cos(theta))
+      // N.y = -sum(k * A * d.y * cos(theta))
+      // N.z =  1 - sum(Q * k * A * sin(theta))
+      float nx = 0.0, ny = 0.0, nz_term = 0.0;
+      {
+        vec2 dir = normalize(vec2( 1.0,  0.3)); float k=0.008, A=5.0, Q=0.60, om=1.2, ph=0.0;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      {
+        vec2 dir = normalize(vec2( 0.7,  0.7)); float k=0.012, A=3.0, Q=0.50, om=1.8, ph=2.0;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      {
+        vec2 dir = normalize(vec2( 0.2,  1.0)); float k=0.020, A=2.0, Q=0.35, om=2.5, ph=4.5;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      {
+        vec2 dir = normalize(vec2(-0.4,  0.9)); float k=0.035, A=1.5, Q=0.20, om=3.0, ph=1.3;
+        float theta = dot(dir, p0)*k + om*uTime + ph;
+        float s=sin(theta), c=cos(theta);
+        nx -= k*A*dir.x*c;  ny -= k*A*dir.y*c;  nz_term += Q*k*A*s;
+      }
+      vec3 localNorm = normalize(vec3(nx, ny, 1.0 - nz_term));
+
+      // vFoamMask: nz_term peaks at steep crests — used for whitecap foam
+      vFoamMask = clamp(nz_term * 1.5, 0.0, 1.0);
 
       vWorldNormal = normalize(mat3(modelMatrix) * localNorm);
       vec4 worldPos4 = modelMatrix * vec4(pos.x, pos.y, h, 1.0);
@@ -193,6 +230,7 @@ const waterMat = new THREE.ShaderMaterial({
     uniform vec3 uSkyColor;
     varying vec3 vWorldPos;
     varying vec3 vWorldNormal;
+    varying float vFoamMask;
 
     void main() {
       vec3 N = normalize(vWorldNormal);
