@@ -261,7 +261,12 @@ const waterMat = new THREE.ShaderMaterial({
       float spec = pow(max(dot(N, H), 0.0), 256.0);
       color += vec3(1.0, 0.97, 0.88) * spec * 1.2;
 
+      // Whitecap foam at steep crests
+      float whitecap = smoothstep(0.45, 0.70, vFoamMask);
+      color = mix(color, vec3(1.0, 0.98, 0.95), whitecap * 0.80);
+
       float alpha = mix(0.60, 0.90, fresnel);
+      alpha = max(alpha, whitecap * 0.95);   // foam is more opaque
       gl_FragColor = vec4(color, alpha);
     }
   `,
