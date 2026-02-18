@@ -147,7 +147,7 @@ function getExactGroundHeight(x, z) {
 }
 
 // ─── Water Plane with Surfable Waves ─────────────────────────
-const WATER_SEGS = 80;
+const WATER_SEGS = 256;
 const waterGeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 3, TERRAIN_SIZE * 3, WATER_SEGS, WATER_SEGS);
 const waterMat = new THREE.ShaderMaterial({
   uniforms: {
@@ -236,11 +236,11 @@ const waterMat = new THREE.ShaderMaterial({
       vec3 N = normalize(vWorldNormal);
       vec3 V = normalize(cameraPosition - vWorldPos);
 
-      // Micro-ripple: perturb normal with high-freq procedural waves
-      vec2 uv1 = vWorldPos.xz * 0.08 + uTime * vec2(0.25, 0.12);
-      vec2 uv2 = vWorldPos.xz * 0.13 - uTime * vec2(0.15, 0.22);
-      float nx = (sin(uv1.x * 6.283) + sin(uv2.x * 6.283 + 1.1)) * 0.02;
-      float nz = (cos(uv1.y * 6.283) + cos(uv2.y * 6.283 - 0.7)) * 0.02;
+      // Wave-scale normal perturbation: visible rolling bands from shore
+      vec2 uv1 = vWorldPos.xz * 0.025 + uTime * vec2(0.8, 0.4);
+      vec2 uv2 = vWorldPos.xz * 0.035 - uTime * vec2(0.5, 0.7);
+      float nx = (sin(uv1.x * 6.283) + sin(uv2.x * 6.283 + 1.1)) * 0.22;
+      float nz = (cos(uv1.y * 6.283) + cos(uv2.y * 6.283 - 0.7)) * 0.22;
       N = normalize(N + vec3(nx, 0.0, nz));
 
       // Fresnel: glancing angle shows sky, overhead shows depth
