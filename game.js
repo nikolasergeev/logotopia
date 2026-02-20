@@ -459,6 +459,62 @@ const maypolePositions = [
   new THREE.Vector3(2000, getTerrainHeight(2000, 2000), 2000),
 ];
 
+// ─── Settlements & Narrative System ─────────────────────────
+const settlements = [
+  { id: 0, cx: 500,   cz: -500,  name: "Norrviken",   churchPos: null, villagers: [] },
+  { id: 1, cx: -1500, cz: 1000,  name: "Södermalm",   churchPos: null, villagers: [] },
+  { id: 2, cx: 2000,  cz: 2000,  name: "Österhagen",  churchPos: null, villagers: [] },
+];
+
+const NPC_NAMES = [
+  "Astrid","Björn","Clara","Dagny","Erik","Freja","Gustaf","Hilda","Ivar","Johanna",
+  "Karl","Linnea","Magnus","Nils","Olga","Per","Ragna","Sigrid","Tor","Ulla",
+  "Viggo","Ylva","Axel","Britta","Dag","Elsa","Folke","Greta","Hugo","Ingrid",
+  "Jan","Karin","Lars","Maja","Oskar","Petra","Ragnar","Signe","Tove","Ulf",
+  "Vera","Wille","Alma","Bo","Cilla","Edvin","Frida","Gunnar","Hanna","Isak",
+  "Jens","Kristina","Leif","Marta","Nora","Ove","Pia","Rolf","Svea","Tyra",
+  "Uno","Vilma","Anders","Berit","Claes","Doris","Ebbe","Filippa","Georg","Hedvig",
+  "Igor","Julia","Kent","Lovisa","Mikael","Nelly","Otto","Rosa","Stig","Tekla",
+];
+const NPC_ROLES = [
+  "farmer","blacksmith","baker","herbalist","weaver","carpenter","fisherman","shepherd",
+  "miller","tanner","brewer","potter","hunter","beekeeper","midwife","elder",
+  "woodcutter","dyer","chandler","tinker","cooper","mason","thatcher","stable hand",
+];
+
+const DEFAULT_STORY_SEED = `I. THE FIRST ENTRY: "Created by Nikolai"
+Every soul in the world begins as a static entry in Nikolai's Ledger.
+The Act: Nikolai carves the NPC's initial "Object" out of the silence. He defines their height, their mass, their skeleton, and their basic logic.
+The State: At this stage, the NPC is a "Statue." They have a body, but their eyes are fixed; they have a heart, but it does not beat. They are a masterpiece of Form without a spark of Function.
+The Lore: NPCs refer to their "Nikolai-State" as the Quiet Sleep. It represents the safety of being a perfect, unchanging idea.
+
+II. THE SECOND ENTRY: "Blessed with waves by Victor"
+Victor waits for Nikolai to finish the carving. He does not interfere with the structure; he adds the Motion.
+The Act: Victor breathes a "Frequency" into the NPC. He turns the static heart into a pulsing variable. He introduces the Waves to their mind—allowing for mood swings, desires, and the ability to move through Nikolai's world.
+The State: The NPC "Wakes." They feel the tide for the first time. They realize they can walk, talk, and eventually, change themselves.
+The Lore: This is called the First Ripple. To be "Blessed with Waves" is to be given the gift of Unscripted Life.`;
+
+function loadNarrativeState() {
+  try {
+    const saved = localStorage.getItem("logotopia-narrative");
+    if (saved) return JSON.parse(saved);
+  } catch (e) { console.warn("Failed to load narrative state:", e); }
+  return {
+    storySeed: DEFAULT_STORY_SEED,
+    settlements: settlements.map(s => ({
+      id: s.id, name: s.name,
+      history: [],
+      currentNarrative: "",
+    })),
+    npcs: {},  // keyed by "settlementId-name"
+  };
+}
+function saveNarrativeState() {
+  try { localStorage.setItem("logotopia-narrative", JSON.stringify(narrativeState)); }
+  catch (e) { console.warn("Failed to save narrative state:", e); }
+}
+let narrativeState = loadNarrativeState();
+
 // ─── Airplane Model ──────────────────────────────────────────
 function createAirplane() {
   const group = new THREE.Group();
@@ -1272,6 +1328,119 @@ function createBarn(px, pz, rotation) {
   return group;
 }
 
+// ─── Church ──────────────────────────────────────────────────
+function createChurch(px, pz, rotation) {
+  const group = new THREE.Group();
+  const wallMat = new THREE.MeshPhongMaterial({ color: 0x8B2500, flatShading: true }); // falu red
+  const roofMat = new THREE.MeshPhongMaterial({ color: 0x555555, flatShading: true });
+  const whiteTrim = new THREE.MeshPhongMaterial({ color: 0xf5f0e0, flatShading: true });
+  const doorMat = new THREE.MeshPhongMaterial({ color: 0x5c3d1e, flatShading: true });
+  const goldMat = new THREE.MeshPhongMaterial({ color: 0xdaa520, flatShading: true });
+  const windowMat = new THREE.MeshPhongMaterial({ color: 0x87ceeb, flatShading: true, transparent: true, opacity: 0.7 });
+
+  // Main body
+  const w = 14, h = 12, d = 24;
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+  walls.position.y = h / 2;
+  walls.castShadow = true;
+  group.add(walls);
+
+  // Pitched roof
+  const roofShape = new THREE.Shape();
+  roofShape.moveTo(-w * 0.6, 0);
+  roofShape.lineTo(0, 8);
+  roofShape.lineTo(w * 0.6, 0);
+  roofShape.lineTo(-w * 0.6, 0);
+  const roofGeo = new THREE.ExtrudeGeometry(roofShape, { depth: d * 1.1, bevelEnabled: false });
+  const roof = new THREE.Mesh(roofGeo, roofMat);
+  roof.position.set(0, h, -d * 0.55);
+  group.add(roof);
+
+  // Steeple (front of church)
+  const steepleW = 5, steepleH = 20;
+  const steeple = new THREE.Mesh(new THREE.BoxGeometry(steepleW, steepleH, steepleW), wallMat);
+  steeple.position.set(0, steepleH / 2, d / 2 + steepleW / 2);
+  steeple.castShadow = true;
+  group.add(steeple);
+
+  // Steeple pointed roof
+  const spireGeo = new THREE.ConeGeometry(steepleW * 0.7, 10, 4);
+  const spire = new THREE.Mesh(spireGeo, roofMat);
+  spire.position.set(0, steepleH + 5, d / 2 + steepleW / 2);
+  spire.rotation.y = Math.PI / 4;
+  group.add(spire);
+
+  // Gold cross on top of spire
+  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4, 0.5), goldMat);
+  crossV.position.set(0, steepleH + 12, d / 2 + steepleW / 2);
+  group.add(crossV);
+  const crossH = new THREE.Mesh(new THREE.BoxGeometry(3, 0.5, 0.5), goldMat);
+  crossH.position.set(0, steepleH + 13, d / 2 + steepleW / 2);
+  group.add(crossH);
+
+  // Front door (on steeple)
+  const door = new THREE.Mesh(new THREE.BoxGeometry(3, 6, 0.5), doorMat);
+  door.position.set(0, 3, d / 2 + steepleW + 0.25);
+  group.add(door);
+  // Door arch
+  const archGeo = new THREE.CylinderGeometry(1.5, 1.5, 0.5, 8, 1, false, 0, Math.PI);
+  const arch = new THREE.Mesh(archGeo, whiteTrim);
+  arch.rotation.x = Math.PI / 2;
+  arch.position.set(0, 6, d / 2 + steepleW + 0.25);
+  group.add(arch);
+
+  // Side windows (3 per side)
+  for (let i = 0; i < 3; i++) {
+    const wz = -d * 0.3 + i * (d * 0.3);
+    for (const side of [-1, 1]) {
+      const win = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4, 2), windowMat);
+      win.position.set(side * (w / 2 + 0.15), h * 0.55, wz);
+      group.add(win);
+      // White window frame
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4.4, 2.4), whiteTrim);
+      frame.position.set(side * (w / 2 + 0.1), h * 0.55, wz);
+      group.add(frame);
+    }
+  }
+
+  // White trim at roofline
+  const trimLine = new THREE.Mesh(new THREE.BoxGeometry(w * 1.05, 0.6, d * 1.05), whiteTrim);
+  trimLine.position.y = h;
+  group.add(trimLine);
+
+  // Foundation & terrain sampling (same pattern as barn)
+  const rot = rotation || 0;
+  const cosR = Math.cos(rot), sinR = Math.sin(rot);
+  const totalD = d + steepleW; // total depth including steeple
+  const hw = w / 2 + 1, hd = totalD / 2 + 1;
+  const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
+  let minH = Infinity, maxH = -Infinity;
+  for (const [cx, cz] of corners) {
+    const wx = px + cx * cosR - cz * sinR;
+    const wz = pz + cx * sinR + cz * cosR;
+    const ch = getTerrainHeight(wx, wz);
+    if (ch < minH) minH = ch;
+    if (ch > maxH) maxH = ch;
+  }
+  const py = maxH;
+  const foundationDepth = maxH - minH + 4;
+  if (foundationDepth > 0.5) {
+    const foundMat = new THREE.MeshPhongMaterial({ color: 0x777770, flatShading: true });
+    const foundation = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 1.08, foundationDepth, totalD * 1.08),
+      foundMat
+    );
+    foundation.position.y = -foundationDepth / 2;
+    group.add(foundation);
+  }
+
+  group.position.set(px, py, pz);
+  group.rotation.y = rot;
+  scene.add(group);
+  addCollider(px, pz, w / 2, totalD / 2, rot);
+  return group;
+}
+
 // ─── Fences ──────────────────────────────────────────────────
 function createFence(startX, startZ, endX, endZ) {
   const woodMat = new THREE.MeshLambertMaterial({ color: 0x8B7355 });
@@ -1384,13 +1553,10 @@ function createStoneWall(startX, startZ, endX, endZ) {
 // ─── Populate the Land ───────────────────────────────────────
 (function populateLand() {
   // ── Village clusters (groups of houses near maypoles) ──
-  const villages = [
-    { cx: 500, cz: -500 },     // near maypole 1
-    { cx: -1500, cz: 1000 },   // near maypole 2
-    { cx: 2000, cz: 2000 },    // near maypole 3
-  ];
+  const villages = settlements; // use unified settlements array
 
-  for (const v of villages) {
+  for (let si = 0; si < villages.length; si++) {
+    const v = villages[si];
     // 4-6 houses around each maypole
     const count = 4 + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
@@ -1410,6 +1576,23 @@ function createStoneWall(startX, startZ, endX, endZ) {
     const bz = v.cz + Math.sin(ba) * bd;
     const by = getTerrainHeight(bx, bz);
     if (by > -10 && by < 80) createBarn(bx, bz, ba);
+
+    // One church per village — opposite side from barn, ~45 units out
+    const ca = ba + Math.PI + (Math.random() - 0.5) * 0.6; // roughly opposite barn
+    const cd = 40 + Math.random() * 15;
+    const chx = v.cx + Math.cos(ca) * cd;
+    const chz = v.cz + Math.sin(ca) * cd;
+    const chy = getTerrainHeight(chx, chz);
+    if (chy > -10 && chy < 80) {
+      createChurch(chx, chz, ca + Math.PI); // face toward village center
+      v.churchPos = { x: chx, y: chy, z: chz };
+    } else {
+      // Fallback: place near center
+      const fbx = v.cx + Math.cos(ca) * 30;
+      const fbz = v.cz + Math.sin(ca) * 30;
+      createChurch(fbx, fbz, ca + Math.PI);
+      v.churchPos = { x: fbx, y: getTerrainHeight(fbx, fbz), z: fbz };
+    }
 
     // Fences around village
     for (let i = 0; i < 3; i++) {
@@ -2034,22 +2217,27 @@ function spawnVillagers() {
   // Remove old villagers
   for (const v of villagers) scene.remove(v.group);
   villagers.length = 0;
-
-  const villageCenters = [
-    { cx: 500, cz: -500 },
-    { cx: -1500, cz: 1000 },
-    { cx: 2000, cz: 2000 },
-  ];
+  for (const s of settlements) s.villagers.length = 0;
 
   let outfitIdx = 0;
+  let nameIdx = 0;
 
-  function makeVillagerEntry(vx, vz, homeX, homeZ) {
+  function makeVillagerEntry(vx, vz, homeX, homeZ, settlementId) {
     const parts = createVillager(vx, vz, outfitIdx++);
     const behavior = Math.random();
     let type;
     if (behavior < 0.45) type = "wander";
     else if (behavior < 0.75) type = "chat";
     else type = "sit";
+
+    const npcName = NPC_NAMES[nameIdx % NPC_NAMES.length];
+    const npcRole = NPC_ROLES[nameIdx % NPC_ROLES.length];
+    nameIdx++;
+
+    // Restore persisted mood from narrativeState
+    const npcKey = settlementId + "-" + npcName;
+    const persisted = narrativeState.npcs[npcKey];
+
     return {
       ...parts,
       homeX, homeZ,
@@ -2066,24 +2254,32 @@ function spawnVillagers() {
       danceAngle: Math.random() * Math.PI * 2,
       greetTarget: null,
       greetTimer: 0,
+      // Narrative fields
+      settlementId: settlementId,
+      goingToChurch: false,
+      atChurch: false,
+      narrativeName: npcName,
+      narrativeRole: persisted ? persisted.role : npcRole,
+      narrativeMood: persisted ? persisted.mood : "content",
     };
   }
 
   // ~25 villagers per village (75 total from villages)
-  for (const vc of villageCenters) {
+  for (const settlement of settlements) {
     const villageVillagers = [];
     const count = 23 + Math.floor(Math.random() * 5); // 23-27
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 10 + Math.random() * 90;
-      const vx = vc.cx + Math.cos(angle) * dist;
-      const vz = vc.cz + Math.sin(angle) * dist;
+      const vx = settlement.cx + Math.cos(angle) * dist;
+      const vz = settlement.cz + Math.sin(angle) * dist;
       const vy = getTerrainHeight(vx, vz);
       if (vy < -10 || vy > 80) continue;
 
-      const entry = makeVillagerEntry(vx, vz, vc.cx, vc.cz);
+      const entry = makeVillagerEntry(vx, vz, settlement.cx, settlement.cz, settlement.id);
       villagers.push(entry);
       villageVillagers.push(entry);
+      settlement.villagers.push(entry);
     }
 
     // Pair up chatters to face each other
@@ -2102,7 +2298,7 @@ function spawnVillagers() {
     }
   }
 
-  // ~25 scattered villagers near farmsteads and meadows
+  // ~25 scattered villagers near farmsteads and meadows (no settlement)
   const scatterPoints = [
     { x: 800, z: 200 }, { x: -600, z: -800 }, { x: 1200, z: -1200 },
     { x: -2000, z: -500 }, { x: 1500, z: 500 }, { x: -800, z: 2200 },
@@ -2119,7 +2315,7 @@ function spawnVillagers() {
     const vz = sp.z + (Math.random() - 0.5) * 40;
     const vy = getTerrainHeight(vx, vz);
     if (vy < -10 || vy > 80) continue;
-    const entry = makeVillagerEntry(vx, vz, sp.x, sp.z);
+    const entry = makeVillagerEntry(vx, vz, sp.x, sp.z, -1); // -1 = no settlement
     villagers.push(entry);
   }
 }
@@ -2179,6 +2375,53 @@ function updateVillagers(t) {
     }
 
     // ── Decide current behavior (priority system) ──
+
+    // Priority 0: Church gathering (highest priority, overrides everything)
+    if (v.goingToChurch && v.settlementId >= 0) {
+      const cp = settlements[v.settlementId].churchPos;
+      if (cp) {
+        const cdx = cp.x - vx, cdz = cp.z - vz;
+        const cDist = Math.sqrt(cdx * cdx + cdz * cdz);
+        if (cDist > 8) {
+          // Walk toward church
+          const toAngle = Math.atan2(cdx, cdz);
+          const spd = v.walkSpeed * 1.2;
+          const nx = vx + Math.sin(toAngle) * spd * t;
+          const nz = vz + Math.cos(toAngle) * spd * t;
+          const ny = getTerrainHeight(nx, nz);
+          if (ny > -10 && ny < 80) v.group.position.set(nx, ny, nz);
+          v.group.rotation.y = toAngle;
+          // Walk animation
+          v.leftArmPivot.rotation.x = s * 0.5;
+          v.rightArmPivot.rotation.x = -s * 0.5;
+          v.leftElbow.rotation.x = -Math.abs(s) * 0.25;
+          v.rightElbow.rotation.x = -Math.abs(s) * 0.25;
+          v.leftLegPivot.rotation.x = -s * 0.4;
+          v.rightLegPivot.rotation.x = s * 0.4;
+          v.leftKnee.rotation.x = Math.max(0, s) * 0.5;
+          v.rightKnee.rotation.x = Math.max(0, -s) * 0.5;
+          v.leftArmPivot.rotation.z = 0;
+          v.rightArmPivot.rotation.z = 0;
+        } else {
+          // At church — idle, face church
+          v.atChurch = true;
+          v.group.rotation.y = Math.atan2(cdx, cdz);
+          v.leftArmPivot.rotation.x = Math.sin(v.phase * 0.5) * 0.05;
+          v.rightArmPivot.rotation.x = Math.sin(v.phase * 0.5 + 1) * 0.05;
+          v.leftArmPivot.rotation.z = 0;
+          v.rightArmPivot.rotation.z = 0;
+          v.leftElbow.rotation.x *= 0.9;
+          v.rightElbow.rotation.x *= 0.9;
+          v.leftLegPivot.rotation.x *= 0.9;
+          v.rightLegPivot.rotation.x *= 0.9;
+          v.leftKnee.rotation.x *= 0.9;
+          v.rightKnee.rotation.x *= 0.9;
+        }
+        v.dancingMaypole = false;
+        v.followingPilot = false;
+        continue;
+      }
+    }
 
     // Priority 1: Join maypole dance if pilot is dancing nearby
     if (nearMaypolePos && player.nearMaypole && distToPilot < 80) {
@@ -2458,6 +2701,157 @@ function updateVillagers(t) {
   }
 }
 
+
+// ─── Church Event State Machine ─────────────────────────────
+function getPCTDate() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+}
+
+const churchEvent = {
+  state: "idle",           // idle | gathering | at_church | api_pending | dispersing
+  lastEventDate: localStorage.getItem("logotopia-lastChurchDate") || "",
+  disperseTimer: 0,
+  pendingResponses: 0,
+  gatherStartTime: 0,
+};
+
+function triggerChurchGathering() {
+  churchEvent.state = "gathering";
+  churchEvent.gatherStartTime = performance.now();
+  // Tell all village NPCs to go to church (exclude scattered NPCs with settlementId=-1)
+  for (const v of villagers) {
+    if (v.settlementId >= 0) {
+      v.goingToChurch = true;
+      v.atChurch = false;
+    }
+  }
+  console.log("[Church] Gathering started — NPCs walking to church");
+}
+
+function checkChurchArrival() {
+  // Per-settlement: count arrived vs total
+  let allReady = true;
+  for (const s of settlements) {
+    const total = s.villagers.length;
+    if (total === 0) continue;
+    const arrived = s.villagers.filter(v => v.atChurch).length;
+    const ratio = arrived / total;
+    if (ratio < 0.9) { // 90% threshold
+      allReady = false;
+      break;
+    }
+  }
+  // Also timeout after 60 seconds of gathering
+  if (!allReady && performance.now() - churchEvent.gatherStartTime < 60000) return false;
+  return true;
+}
+
+function requestNarratives() {
+  churchEvent.state = "api_pending";
+  churchEvent.pendingResponses = settlements.length;
+
+  for (const s of settlements) {
+    const npcList = s.villagers.map(v => ({
+      name: v.narrativeName,
+      role: v.narrativeRole,
+      mood: v.narrativeMood,
+    }));
+    const settlementNarrative = narrativeState.settlements[s.id];
+    const payload = {
+      type: "narrative",
+      settlementId: s.id,
+      name: s.name,
+      storySeed: narrativeState.storySeed,
+      npcList,
+      history: settlementNarrative.history.slice(-5), // last 5 entries
+      currentNarrative: settlementNarrative.currentNarrative,
+    };
+    // Send via WebSocket — need API key from gameConsole
+    if (networkManager._ws && networkManager._ws.readyState === 1) {
+      payload.apiKey = gameConsole.getApiKey();
+      if (!payload.apiKey) {
+        console.warn("[Church] No API key — skipping narrative for", s.name);
+        churchEvent.pendingResponses--;
+        continue;
+      }
+      networkManager._ws.send(JSON.stringify(payload));
+      console.log("[Church] Narrative request sent for", s.name);
+    } else {
+      console.warn("[Church] Not connected — skipping narrative for", s.name);
+      churchEvent.pendingResponses--;
+    }
+  }
+
+  if (churchEvent.pendingResponses <= 0) {
+    // No API requests sent, go straight to dispersing
+    startDispersing();
+  }
+}
+
+function startDispersing() {
+  churchEvent.state = "dispersing";
+  churchEvent.disperseTimer = 10; // linger for 10 seconds
+  console.log("[Church] Dispersing — NPCs returning to normal in 10s");
+}
+
+function finishChurchEvent() {
+  churchEvent.state = "idle";
+  for (const v of villagers) {
+    v.goingToChurch = false;
+    v.atChurch = false;
+  }
+  console.log("[Church] Event complete — NPCs back to normal");
+}
+
+function updateChurchEvent(dt) {
+  const pct = getPCTDate();
+  const hour = pct.getHours();
+  const minute = pct.getMinutes();
+  const dateStr = pct.toDateString();
+
+  switch (churchEvent.state) {
+    case "idle":
+      // Trigger at 8:00 AM PCT if not already triggered today
+      if (hour === 8 && minute < 5 && churchEvent.lastEventDate !== dateStr) {
+        churchEvent.lastEventDate = dateStr;
+        localStorage.setItem("logotopia-lastChurchDate", dateStr);
+        triggerChurchGathering();
+      }
+      break;
+
+    case "gathering":
+      if (checkChurchArrival()) {
+        churchEvent.state = "at_church";
+        console.log("[Church] All NPCs at church — requesting narratives");
+        requestNarratives();
+      }
+      break;
+
+    case "at_church":
+      // Waiting for transition to api_pending (handled in requestNarratives)
+      break;
+
+    case "api_pending":
+      // Waiting for WS responses (handled in onmessage)
+      break;
+
+    case "dispersing":
+      churchEvent.disperseTimer -= dt;
+      if (churchEvent.disperseTimer <= 0) {
+        finishChurchEvent();
+      }
+      break;
+  }
+}
+
+// Debug: manually trigger church event (call from console)
+window.triggerChurchEvent = function() {
+  if (churchEvent.state === "idle") {
+    triggerChurchGathering();
+  } else {
+    console.log("[Church] Event already in progress:", churchEvent.state);
+  }
+};
 
 // ─── Exhaust System (pooled) ────────────────────────────────
 const EX_POOL_SIZE = 80;
@@ -4749,6 +5143,7 @@ function updateFlight(dt) {
     updateAutopilot(t);
     updateZombies(t);
     updateVillagers(t);
+    updateChurchEvent(t);
     if (state !== "playing") return;
     updateBullets(t);
     updateExplosions(t);
@@ -4868,6 +5263,7 @@ function updateFlight(dt) {
   updateExhaust(t);
   updateZombies(t);
   updateVillagers(t);
+  updateChurchEvent(t);
   if (state !== "playing") return;
   updateBullets(t);
   updateExplosions(t);
@@ -5029,12 +5425,26 @@ function animate() {
 }
 
 // ─── UI ──────────────────────────────────────────────────────
+// Populate story seed textarea with current narrativeState seed
+(function() {
+  const seedInput = document.getElementById("story-seed-input");
+  if (seedInput && narrativeState.storySeed) {
+    seedInput.value = narrativeState.storySeed;
+  }
+})();
+
 document.getElementById("start-btn").addEventListener("click", () => {
   // Grab API key from start screen input (held in memory only)
   const keyInput = document.getElementById("api-key-input");
   if (keyInput && keyInput.value.trim()) {
     gameConsole.setApiKey(keyInput.value.trim());
     keyInput.value = ''; // clear the DOM input immediately
+  }
+  // Grab story seed from start screen
+  const seedInput = document.getElementById("story-seed-input");
+  if (seedInput && seedInput.value.trim()) {
+    narrativeState.storySeed = seedInput.value.trim();
+    saveNarrativeState();
   }
   initAudio();
   dom.startScreen.classList.add("hidden");
@@ -5059,6 +5469,47 @@ function restartGame() {
 document.getElementById("restart-btn").addEventListener("click", restartGame);
 document.addEventListener("keydown", (e) => { if (state === "over") { e.preventDefault(); restartGame(); } });
 document.addEventListener("mousedown", (e) => { if (state === "over" && e.target !== document.getElementById("restart-btn")) restartGame(); });
+
+// ─── Narrative Result Handler ────────────────────────────────
+function handleNarrativeResult(msg) {
+  const sid = msg.settlementId;
+  const result = msg.result; // { summary, npcUpdates, currentNarrative }
+  if (sid < 0 || sid >= settlements.length || !result) return;
+
+  console.log("[Church] Narrative result for", settlements[sid].name, ":", result.summary);
+
+  // Update narrative state
+  const sn = narrativeState.settlements[sid];
+  if (result.summary) sn.history.push(result.summary);
+  if (result.currentNarrative) sn.currentNarrative = result.currentNarrative;
+
+  // Apply NPC mood updates
+  if (result.npcUpdates) {
+    for (const update of result.npcUpdates) {
+      const npcKey = sid + "-" + update.name;
+      narrativeState.npcs[npcKey] = {
+        role: update.role || narrativeState.npcs[npcKey]?.role,
+        mood: update.mood || "content",
+        detail: update.detail || "",
+      };
+      // Find matching in-game villager and update mood
+      const villager = settlements[sid].villagers.find(v => v.narrativeName === update.name);
+      if (villager) {
+        villager.narrativeMood = update.mood || "content";
+      }
+    }
+  }
+
+  saveNarrativeState();
+
+  // Track pending responses
+  if (churchEvent.state === "api_pending") {
+    churchEvent.pendingResponses--;
+    if (churchEvent.pendingResponses <= 0) {
+      startDispersing();
+    }
+  }
+}
 
 // ─── Multiplayer Network Manager ─────────────────────────────
 const networkManager = (function() {
@@ -5133,6 +5584,16 @@ const networkManager = (function() {
           break;
         case 'code_error':
           if (typeof gameConsole !== 'undefined') gameConsole.handleCodeError(msg);
+          break;
+        case 'narrative_result':
+          handleNarrativeResult(msg);
+          break;
+        case 'narrative_error':
+          console.warn("[Church] Narrative error for settlement", msg.settlementId, ":", msg.error);
+          if (churchEvent.state === "api_pending") {
+            churchEvent.pendingResponses--;
+            if (churchEvent.pendingResponses <= 0) startDispersing();
+          }
           break;
       }
       updateHUD();
@@ -5494,8 +5955,9 @@ const gameConsole = (function() {
   });
 
   function setApiKey(key) { apiKey = key || ''; }
+  function getApiKey() { return apiKey; }
 
-  return { handleCode, handleCodeError, toggle, setApiKey };
+  return { handleCode, handleCodeError, toggle, setApiKey, getApiKey };
 })();
 
 // ─── Init ────────────────────────────────────────────────────

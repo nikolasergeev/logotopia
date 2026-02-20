@@ -112,6 +112,9 @@ wss.on('connection', (ws) => {
         handleAI(id, prompt, msg.apiKey);
       } else if (msg.type === 'ai') {
         ws.send(JSON.stringify({ type: 'code_error', error: 'Missing API key or prompt', prompt: msg.prompt || '' }));
+      } else if (msg.type === 'narrative' && msg.apiKey) {
+        console.log('Narrative request from', id, 'for settlement', msg.name);
+        handleNarrative(id, msg);
       }
     } catch (e) { console.error('WS message error:', e); }
   });
@@ -169,6 +172,81 @@ async function handleAI(authorId, prompt, apiKey) {
     const p = players.get(authorId);
     if (p && p.ws.readyState === 1) {
       p.ws.send(JSON.stringify({ type: 'code_error', error: e.message, prompt }));
+    }
+  }
+}
+
+const NARRATIVE_SYSTEM_PROMPT = `You are the narrator for a living village in a Scandinavian-themed game world called Logotopia. Each day, the villagers gather at their church, and you evolve their ongoing story.
+
+You will receive:
+- A story seed (the foundational lore of this world)
+- The settlement name
+- A list of NPCs with their names, roles, and current moods
+- Previous narrative history
+- The current narrative state
+
+Your job: Write the NEXT chapter of this settlement's story. Evolve relationships, introduce small conflicts or joys, reflect the seasons and the passage of time. Keep it grounded in the Scandinavian village setting. Each NPC should feel like they have their own inner life.
+
+Respond with ONLY valid JSON (no markdown, no backticks):
+{
+  "summary": "A 1-2 sentence summary of what happened today",
+  "currentNarrative": "A 2-4 paragraph narrative of today's gathering and events (max 500 words)",
+  "npcUpdates": [
+    { "name": "NPC_NAME", "mood": "one-word mood", "detail": "Brief note about what happened to them today" }
+  ]
+}
+
+Valid moods: content, happy, excited, anxious, melancholy, angry, hopeful, tired, curious, proud, grieving, love-struck, determined, fearful, peaceful
+
+IMPORTANT: Only update NPCs whose stories meaningfully changed. You don't need to update every NPC every day. Return 3-8 NPC updates per gathering.`;
+
+async function handleNarrative(authorId, msg) {
+  try {
+    const client = new Anthropic({ apiKey: msg.apiKey });
+
+    const userMessage = `Settlement: ${msg.name}
+Story Seed: ${msg.storySeed || '(none provided)'}
+
+NPCs present:
+${(msg.npcList || []).map(n => `- ${n.name} (${n.role}, mood: ${n.mood})`).join('\n')}
+
+Previous events:
+${(msg.history || []).join('\n') || '(first gathering)'}
+
+Current narrative:
+${msg.currentNarrative || '(none yet — this is the first gathering)'}
+
+Write the next chapter of this village's story.`;
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 1024,
+      system: NARRATIVE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    let text = response.content[0].text.trim();
+    // Strip markdown fences if present
+    if (text.startsWith('```')) {
+      text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+
+    const result = JSON.parse(text);
+    broadcastAll({
+      type: 'narrative_result',
+      settlementId: msg.settlementId,
+      result,
+    });
+    console.log('Narrative result for', msg.name, ':', result.summary);
+  } catch (e) {
+    console.error('Narrative error for', msg.name, ':', e.message);
+    const p = players.get(authorId);
+    if (p && p.ws.readyState === 1) {
+      p.ws.send(JSON.stringify({
+        type: 'narrative_error',
+        settlementId: msg.settlementId,
+        error: e.message,
+      }));
     }
   }
 }
